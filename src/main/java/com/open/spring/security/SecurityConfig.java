@@ -159,6 +159,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/ocs-analytics/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
                         // ===================================
 
+                        // ========== PRODUCTIVITY (BUD-E CHROME EXTENSION) ==========
+                        // Productivity tracking endpoints for Bud-E extension - requires authentication
+                        .requestMatchers("/api/productivity/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
+                        // ===========================================================
+
                         // ========== DEFAULT: ALL OTHER API ENDPOINTS ==========
                         // Secure by default - any endpoint not explicitly listed above requires authentication
                         .requestMatchers("/api/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
@@ -199,6 +204,9 @@ public class SecurityConfig {
         configuration.addAllowedOriginPattern("http://opencodingsociety.com");
         configuration.addAllowedOriginPattern("https://pages.opencodingsociety.com");
         configuration.addAllowedOriginPattern("https://spring.opencodingsociety.com");
+        // Allow Chrome extension origins for Bud-E
+        configuration.addAllowedOriginPattern("chrome-extension://*");
+        configuration.addAllowedOriginPattern("moz-extension://*");
         configuration.addAllowedHeader("*");
         configuration.addAllowedMethod("*");
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
