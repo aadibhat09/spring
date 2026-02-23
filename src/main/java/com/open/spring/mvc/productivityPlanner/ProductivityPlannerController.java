@@ -18,13 +18,14 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.github.cdimascio.dotenv.Dotenv;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 
 @RestController
 @RequestMapping("/api/productivity-planner")
@@ -33,9 +34,11 @@ public class ProductivityPlannerController {
     @Autowired
     private ProductivityPlannerRepository repository;
 
-    private final Dotenv dotenv = Dotenv.load();
-    private final String geminiApiKey = dotenv.get("GEMINI_API_KEY");
-    private final String geminiApiUrl = dotenv.get("GEMINI_API_URL");
+    @Value("${gemini.api.key:}")
+    private String geminiApiKey;
+
+    @Value("${gemini.api.url:}")
+    private String geminiApiUrl;
 
     @Data
     @NoArgsConstructor
@@ -54,7 +57,19 @@ public class ProductivityPlannerController {
     @PostMapping("/generate")
     public ResponseEntity<?> generatePlan(@RequestBody PlanRequest request) {
         try {
+            if (request == null) {
+                return ResponseEntity.ok(buildFallbackPlan(null));
+            }
+            if (geminiApiKey == null || geminiApiKey.isBlank()) {
+                return ResponseEntity.ok(buildFallbackPlan(request));
+            }
+            if (geminiApiUrl == null || geminiApiUrl.isBlank()) {
+                return ResponseEntity.ok(buildFallbackPlan(request));
+            }
             // Build the prompt
+            String subjectsText = request.getSubjects() == null ? "[]" : Arrays.toString(request.getSubjects());
+            String methodsText = request.getLearningMethods() == null ? "[]" : Arrays.toString(request.getLearningMethods());
+
             String prompt = String.format("""
                 You are an expert productivity coach and study planner.
                 Create a concise study plan based on the following user profile:
@@ -80,8 +95,8 @@ public class ProductivityPlannerController {
             request.getTimeAvailableHours(), 
             request.getSessionLength(), 
             request.getPeakFocusTime(), 
-            Arrays.toString(request.getSubjects()), 
-            Arrays.toString(request.getLearningMethods()), 
+            subjectsText, 
+            methodsText, 
             request.getWorkRestCycle(), 
             request.getDistractionTolerance());
 
@@ -112,24 +127,44 @@ public class ProductivityPlannerController {
             ResponseEntity<String> response = restTemplate.exchange(fullUrl, HttpMethod.POST, httpRequest, String.class);
 
             String resultBody = response.getBody();
+            if (resultBody == null || resultBody.isBlank()) {
+                return ResponseEntity.status(502).body(Map.of("error", "Empty response from Gemini"));
+            }
 
             // Parse response
             ObjectMapper mapper = new ObjectMapper();
             JsonNode root = mapper.readTree(resultBody);
-            
-            String generatedText = root.path("candidates")
+
+            JsonNode candidates = root.path("candidates");
+            if (!candidates.isArray() || candidates.isEmpty()) {
+                return ResponseEntity.status(502).body(Map.of("error", "Unexpected Gemini response", "details", resultBody));
+            }
+
+            String generatedText = candidates
                     .get(0)
                     .path("content")
                     .path("parts")
                     .get(0)
                     .path("text").asText();
-                    
-            // The generatedText should be a JSON string because we asked for JSON
-            JsonNode generatedJson = mapper.readTree(generatedText);
-            
-            String planResponse = generatedJson.path("response").asText();
-            JsonNode whitelistNode = generatedJson.path("suggestedWhitelist");
-            
+
+            if (generatedText == null || generatedText.isBlank()) {
+                return ResponseEntity.status(502).body(Map.of("error", "Gemini returned empty content"));
+            }
+
+            String planResponse;
+            JsonNode whitelistNode;
+
+            try {
+                // The generatedText should be a JSON string because we asked for JSON
+                JsonNode generatedJson = mapper.readTree(generatedText);
+                planResponse = generatedJson.path("response").asText();
+                whitelistNode = generatedJson.path("suggestedWhitelist");
+            } catch (JsonProcessingException e) {
+                // Fallback: return raw text if the model didn't return JSON
+                planResponse = generatedText;
+                whitelistNode = mapper.createArrayNode();
+            }
+
             String whitelistStr = whitelistNode.toString(); // Store as JSON string in DB
 
             // Persist to DB
@@ -138,30 +173,91 @@ public class ProductivityPlannerController {
                 request.getTimeAvailableHours(),
                 request.getSessionLength(),
                 request.getPeakFocusTime(),
-                Arrays.toString(request.getSubjects()),
-                Arrays.toString(request.getLearningMethods()),
+                subjectsText,
+                methodsText,
                 request.getWorkRestCycle(),
                 request.getDistractionTolerance()
             );
             record.setResponse(planResponse);
             record.setSuggestedWhitelist(whitelistStr);
-            ProductivityPlanner saved = repository.save(record);
 
-            // Return payload
-            return ResponseEntity.ok(
-                Map.of(
-                    "id", saved.getId(),
-                    "response", planResponse,
-                    "suggestedWhitelist", mapper.convertValue(whitelistNode, List.class)
-                )
-            );
+            try {
+                ProductivityPlanner saved = repository.save(record);
+                return ResponseEntity.ok(
+                    Map.of(
+                        "id", saved.getId(),
+                        "response", planResponse,
+                        "suggestedWhitelist", mapper.convertValue(whitelistNode, List.class)
+                    )
+                );
+            } catch (Exception e) {
+                // If persistence fails, still return the generated plan.
+                return ResponseEntity.ok(
+                    Map.of(
+                        "response", planResponse,
+                        "suggestedWhitelist", mapper.convertValue(whitelistNode, List.class)
+                    )
+                );
+            }
 
         } catch (HttpClientErrorException.TooManyRequests e) {
-            return ResponseEntity.status(429).body(Map.of("error", "Gemini quota exceeded. Please try again later."));
+            return ResponseEntity.ok(buildFallbackPlan(request));
+        } catch (HttpClientErrorException e) {
+            return ResponseEntity.ok(buildFallbackPlan(request));
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.status(500).body(Map.of("error", "Internal server error: " + e.getMessage()));
+            return ResponseEntity.ok(buildFallbackPlan(request));
         }
+    }
+
+    private Map<String, Object> buildFallbackPlan(PlanRequest request) {
+        // Local fallback so the extension works even if Gemini is unavailable.
+        String educationLevel = request == null || request.getEducationLevel() == null ? "Unknown" : request.getEducationLevel();
+        int timeAvailable = request == null ? 0 : request.getTimeAvailableHours();
+        int sessionLength = request == null ? 25 : request.getSessionLength();
+        String peakFocus = request == null || request.getPeakFocusTime() == null ? "Anytime" : request.getPeakFocusTime();
+        String subjects = request == null || request.getSubjects() == null ? "" : String.join(", ", request.getSubjects());
+        String methods = request == null || request.getLearningMethods() == null ? "" : String.join(", ", request.getLearningMethods());
+        String workRest = request == null || request.getWorkRestCycle() == null ? "Flexible" : request.getWorkRestCycle();
+        String distraction = request == null || request.getDistractionTolerance() == null ? "Medium" : request.getDistractionTolerance();
+        String plan = String.format(
+            "Study Plan (%s)\n" +
+            "- Time available: %d hour(s)\n" +
+            "- Session length: %d minutes\n" +
+            "- Peak focus: %s\n" +
+            "- Subjects: %s\n" +
+            "- Methods: %s\n" +
+            "- Work/rest: %s\n" +
+            "- Distraction tolerance: %s\n\n" +
+            "Plan:\n" +
+            "1) Warm-up (5 min): review goals and materials.\n" +
+            "2) Focus block(s): %d-minute sessions on top priority topic.\n" +
+            "3) Active recall: self-quiz or summarize notes after each block.\n" +
+            "4) Short breaks: stand up, hydrate, reset.\n" +
+            "5) Wrap-up (5 min): capture what to do next." ,
+            educationLevel,
+            timeAvailable,
+            sessionLength,
+            peakFocus,
+            subjects,
+            methods,
+            workRest,
+            distraction,
+            sessionLength
+        );
+
+        List<String> suggested = List.of(
+            "wikipedia.org",
+            "khanacademy.org",
+            "coursera.org",
+            "edx.org",
+            "github.com"
+        );
+
+        return Map.of(
+            "response", plan,
+            "suggestedWhitelist", suggested
+        );
     }
 
     @GetMapping("/plans")
