@@ -172,9 +172,17 @@ def adapt_sqlite_to_mysql_schema(sqlite_schema, table_name):
     
     # Basic type conversions
     import re
+
+    mysql_schema = re.sub(
+        r'(?is)^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"]?)[^\s(`"]+\1\s*\(',
+        f'CREATE TABLE `{table_name}` (',
+        mysql_schema,
+        count=1,
+    )
     
     # Convert JSONB (PostgreSQL/SQLite) to MySQL JSON type
     mysql_schema = re.sub(r'\bJSONB\b', 'JSON', mysql_schema, flags=re.IGNORECASE)
+    mysql_schema = re.sub(r'\bCLOB\b', 'LONGTEXT', mysql_schema, flags=re.IGNORECASE)
     
     # Convert INTEGER to appropriate MySQL type (keep as INT for now)
     # Convert TEXT to appropriate MySQL type
@@ -186,6 +194,13 @@ def adapt_sqlite_to_mysql_schema(sqlite_schema, table_name):
     # Add MySQL-specific options
     mysql_schema = mysql_schema.rstrip(';')
     mysql_schema += " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+
+    mysql_schema = re.sub(
+        r'\bPRIMARY\s+KEY\s+AUTOINCREMENT\b',
+        'AUTO_INCREMENT PRIMARY KEY',
+        mysql_schema,
+        flags=re.IGNORECASE,
+    )
     
     return mysql_schema
 

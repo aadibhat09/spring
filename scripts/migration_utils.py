@@ -87,10 +87,17 @@ class SkipModelInitFlag:
 class SpringBootSchemaRunner:
     """Runs Spring Boot temporarily to create schema and then shuts it down."""
 
-    def __init__(self, project_root: Path, log_file: str, spring_port: int):
+    def __init__(
+        self,
+        project_root: Path,
+        log_file: str,
+        spring_port: int,
+        additional_run_args: list[str] | None = None,
+    ):
         self.project_root = project_root
         self.log_file = log_file
         self.spring_port = spring_port
+        self.additional_run_args = additional_run_args or []
 
     def run(self, timeout_seconds: int = 180, settle_seconds: int = 5) -> None:
         process = self._start()
@@ -100,11 +107,14 @@ class SpringBootSchemaRunner:
             self._stop(process)
 
     def _start(self) -> subprocess.Popen:
+        run_args = ["--spring.jpa.hibernate.ddl-auto=create", *self.additional_run_args]
+        run_args_value = " ".join(run_args)
+
         return subprocess.Popen(
             [
                 "./mvnw",
                 "spring-boot:run",
-                "-Dspring-boot.run.arguments=--spring.jpa.hibernate.ddl-auto=create",
+                f"-Dspring-boot.run.arguments={run_args_value}",
             ],
             stdout=open(self.log_file, "w"),
             stderr=subprocess.STDOUT,
