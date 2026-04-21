@@ -2,13 +2,20 @@ package com.open.spring.mvc.slack;
 
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import com.open.spring.mvc.groups.Groups;
+import com.open.spring.mvc.groups.GroupsJpaRepository;
+import com.open.spring.mvc.person.Person;
+import com.open.spring.mvc.person.PersonJpaRepository;
 
 @Service
 public class CalendarIssueService {
@@ -16,11 +23,19 @@ public class CalendarIssueService {
     @Autowired
     private CalendarIssueRepository calendarIssueRepository;
 
+        @Autowired
+        private PersonJpaRepository personJpaRepository;
+
+        @Autowired
+        private GroupsJpaRepository groupsJpaRepository;
+
     public List<CalendarIssue> getIssues(String status, String priority, LocalDate dueDate, String eventId, String q,
             String requesterUid, boolean privileged) {
         List<CalendarIssue> accessibleIssues = privileged
                 ? calendarIssueRepository.findAll()
-                : calendarIssueRepository.findByOwnerUid(requesterUid);
+            : calendarIssueRepository.findAll().stream()
+                .filter(issue -> canViewIssue(issue, requesterUid))
+                .collect(Collectors.toList());
 
         return accessibleIssues.stream()
                 .filter(issue -> matchesStatus(issue, status))
@@ -65,6 +80,7 @@ public class CalendarIssueService {
             existing.setPriority(updated.getPriority() != null ? updated.getPriority() : existing.getPriority());
             existing.setDueDate(updated.getDueDate());
             existing.setEventId(updated.getEventId());
+            existing.setGroupName(updated.getGroupName());
             existing.setTags(updated.getTags());
             return calendarIssueRepository.save(existing);
         });
@@ -94,7 +110,43 @@ public class CalendarIssueService {
         if (privileged) {
             return calendarIssueRepository.findById(id);
         }
-        return calendarIssueRepository.findByIdAndOwnerUid(id, requesterUid);
+        return calendarIssueRepository.findAll().stream()
+                .filter(issue -> issue.getId() != null && issue.getId().equals(id))
+                .filter(issue -> canViewIssue(issue, requesterUid))
+                .findFirst();
+    }
+
+    private boolean canViewIssue(CalendarIssue issue, String requesterUid) {
+        if (issue == null) {
+            return false;
+        }
+
+        if (requesterUid == null || requesterUid.isBlank()) {
+            return false;
+        }
+
+        if (requesterUid.equals(issue.getOwnerUid())) {
+            return true;
+        }
+
+        String issueGroupName = issue.getGroupName();
+        if (issueGroupName == null || issueGroupName.isBlank()) {
+            return false;
+        }
+
+        Person requester = personJpaRepository.findByUid(requesterUid);
+        if (requester == null) {
+            return false;
+        }
+
+        Set<String> requesterGroupNames = new HashSet<>();
+        for (Groups group : groupsJpaRepository.findGroupsByPersonIdWithMembers(requester.getId())) {
+            if (group != null && group.getName() != null) {
+                requesterGroupNames.add(group.getName());
+            }
+        }
+
+        return requesterGroupNames.contains(issueGroupName);
     }
 
     private void validateIssue(CalendarIssue issue) {

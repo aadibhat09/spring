@@ -161,6 +161,7 @@ public class CalendarIssueController {
         }
 
         issue.setEventId(trimToNull((String) payload.get("eventId")));
+        issue.setGroupName(trimToNull((String) payload.get("groupName")));
         issue.setTags(normalizeTags(payload.get("tags")));
         return issue;
     }
@@ -175,6 +176,7 @@ public class CalendarIssueController {
         data.put("priority", issue.getPriority() == null ? null : issue.getPriority().name().toLowerCase());
         data.put("dueDate", issue.getDueDate() == null ? null : issue.getDueDate().toString());
         data.put("eventId", issue.getEventId());
+        data.put("groupName", issue.getGroupName());
         data.put("tags", parseTags(issue.getTags()));
         data.put("createdAt", issue.getCreatedAt() == null ? null : issue.getCreatedAt().toString());
         data.put("updatedAt", issue.getUpdatedAt() == null ? null : issue.getUpdatedAt().toString());

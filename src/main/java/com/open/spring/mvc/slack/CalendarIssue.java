@@ -41,6 +41,9 @@ public class CalendarIssue {
 
     private String eventId;
 
+    @Column(length = 120)
+    private String groupName;
+
     @Column(length = 1000)
     private String tags;
 
@@ -115,6 +118,14 @@ public class CalendarIssue {
 
     public void setEventId(String eventId) {
         this.eventId = eventId;
+    }
+
+    public String getGroupName() {
+        return groupName;
+    }
+
+    public void setGroupName(String groupName) {
+        this.groupName = groupName;
     }
 
     public String getTags() {
