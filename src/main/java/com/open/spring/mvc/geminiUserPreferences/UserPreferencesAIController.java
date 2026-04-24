@@ -30,9 +30,18 @@ public class UserPreferencesAIController {
     @Autowired
     private UserPreferencesAIRepository geminiRepository;
 
-    private final Dotenv dotenv = Dotenv.load();
+    private final Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
     private final String geminiApiKey = dotenv.get("GEMINI_API_KEY");
     private final String geminiApiUrl = dotenv.get("GEMINI_API_URL");
+    
+    private void validateApiConfig() throws IllegalStateException {
+        if (geminiApiKey == null || geminiApiKey.isEmpty()) {
+            throw new IllegalStateException("GEMINI_API_KEY is not configured in .env file");
+        }
+        if (geminiApiUrl == null || geminiApiUrl.isEmpty()) {
+            throw new IllegalStateException("GEMINI_API_URL is not configured in .env file");
+        }
+    }
 
     @Data
     @NoArgsConstructor
@@ -47,6 +56,8 @@ public class UserPreferencesAIController {
     @PostMapping("")
     public ResponseEntity<?> gradeTheme(@RequestBody ThemeRequest request) {
         try {
+            validateApiConfig();
+            
             String prompt = request.getPrompt();
 
             if (prompt == null || prompt.trim().isEmpty()) {
@@ -139,6 +150,8 @@ public class UserPreferencesAIController {
 
         } catch (HttpClientErrorException.TooManyRequests e) {
             return ResponseEntity.status(429).body(Map.of("error", "Gemini quota exceeded. Please try again later."));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(500).body(Map.of("error", "Configuration error: " + e.getMessage()));
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(500).body(Map.of("error", "Internal server error: " + e.getMessage()));
