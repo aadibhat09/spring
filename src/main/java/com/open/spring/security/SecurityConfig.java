@@ -96,8 +96,8 @@ public class SecurityConfig {
                         // Public grades submission - no authentication required
                         .requestMatchers(HttpMethod.POST, "/api/grades").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/grades/").permitAll()
-                        // Allow scraper endpoints without authentication (avoid 401 when testing scraper)
-                        .requestMatchers("/api/scraper/**").permitAll()
+                        // updated so that it takes auth to actually hit endpoint
+                        .requestMatchers("/api/scraper/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
                         // ← GIST CREATION ENDPOINTS - PUBLIC (NO AUTH)
                         .requestMatchers(HttpMethod.POST, "/api/grades/create-gist").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/grades/create-gist/").permitAll()
