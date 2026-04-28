@@ -96,11 +96,15 @@ public class SecurityConfig {
                         // Public grades submission - no authentication required
                         .requestMatchers(HttpMethod.POST, "/api/grades").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/grades/").permitAll()
+                        // updated so that it takes auth to actually hit endpoint
+                        .requestMatchers("/api/scraper/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
                         // ← GIST CREATION ENDPOINTS - PUBLIC (NO AUTH)
                         .requestMatchers(HttpMethod.POST, "/api/grades/create-gist").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/grades/create-gist/").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/person/faces").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/person/identify").permitAll()
+                        // ← MAKE DEBUGGER - PUBLIC (NO AUTH)
+                        .requestMatchers("/api/make/**").permitAll()
                         // Admin-only endpoints, beware of DELETE operations and impact to cascading relational data 
                         .requestMatchers(HttpMethod.DELETE, "/api/person/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/person/**").hasAuthority("ROLE_ADMIN")

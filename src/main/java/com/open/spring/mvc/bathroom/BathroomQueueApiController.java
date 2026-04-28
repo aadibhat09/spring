@@ -8,7 +8,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import java.time.LocalDateTime;
+import java.time.Duration;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.springframework.beans.factory.annotation.Autowired;
+
+import com.open.spring.mvc.person.Person;
+import com.open.spring.mvc.person.PersonJpaRepository;
+import com.open.spring.mvc.analytics.OCSAnalytics;
+import com.open.spring.mvc.analytics.OCSAnalyticsRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -40,6 +49,14 @@ public class BathroomQueueApiController {
      */
     @Autowired
     private BathroomQueueJPARepository repository;
+
+    @Autowired
+    private PersonJpaRepository personRepository;
+
+    @Autowired
+    private OCSAnalyticsRepository analyticsRepository;
+
+    private final Map<String, LocalDateTime> checkInTimes = new ConcurrentHashMap<>();
 
     /**
      * DTO (Data Transfer Object) to support request operations for queue
@@ -116,6 +133,7 @@ public class BathroomQueueApiController {
                 // TOGGLE: Student is already in queue, so remove them (checking back in)
                 queue.removeStudent(queueDto.getStudentName());
                 repository.save(queue);
+                saveBathroomAnalytics(queueDto.getStudentName(), queueDto.getTeacherEmail());
                 return new ResponseEntity<>(Map.of(
                         "action", "removed",
                         "message", queueDto.getStudentName() + " has checked back in."), HttpStatus.OK);
@@ -123,6 +141,7 @@ public class BathroomQueueApiController {
                 // TOGGLE: Student is not in queue, so add them
                 queue.addStudent(queueDto.getStudentName());
                 repository.save(queue);
+                checkInTimes.put(queueDto.getStudentName() + "-" + queueDto.getTeacherEmail(), LocalDateTime.now());
                 return new ResponseEntity<>(Map.of(
                         "action", "added",
                         "message", queueDto.getStudentName() + " was added to the queue."), HttpStatus.CREATED);
@@ -131,6 +150,7 @@ public class BathroomQueueApiController {
             // Create a new queue for the teacher and add the student
             BathroomQueue newQueue = new BathroomQueue(queueDto.getTeacherEmail(), queueDto.getStudentName());
             repository.save(newQueue);
+            checkInTimes.put(queueDto.getStudentName() + "-" + queueDto.getTeacherEmail(), LocalDateTime.now());
             return new ResponseEntity<>(Map.of(
                     "action", "added",
                     "message",
@@ -159,6 +179,7 @@ public class BathroomQueueApiController {
                 // Remove the student from the queue
                 bathroomQueue.removeStudent(queueDto.getStudentName());
                 repository.save(bathroomQueue);
+                saveBathroomAnalytics(queueDto.getStudentName(), queueDto.getTeacherEmail());
                 return new ResponseEntity<>("Removed " + queueDto.getStudentName(), HttpStatus.OK);
             } catch (IllegalArgumentException e) {
                 return new ResponseEntity<>(e.getMessage(), HttpStatus.NOT_FOUND);
@@ -184,6 +205,7 @@ public class BathroomQueueApiController {
         String firstStudent = bathroomQueue.getFrontStudent();
         bathroomQueue.removeStudent(firstStudent);
         repository.save(bathroomQueue);
+        saveBathroomAnalytics(firstStudent, teacher);
     }
 
     /**
@@ -247,6 +269,7 @@ public class BathroomQueueApiController {
 
             if (queue != null && !queue.isEmpty()) {
                 String[] students = queue.split(",");
+                String studentName = students[0];
                 if (students.length > 1) {
                     // Remove first student and rebuild queue
                     String newQueue = String.join(",", Arrays.copyOfRange(students, 1, students.length));
@@ -257,6 +280,7 @@ public class BathroomQueueApiController {
                 }
 
                 repository.save(bathroomQueue);
+                saveBathroomAnalytics(studentName, queueDto.getTeacherEmail());
                 return ResponseEntity.ok("Removed front student from queue");
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Queue is already empty");
@@ -347,5 +371,27 @@ public class BathroomQueueApiController {
                     emptyQueue.setMaxOccupancy(1);
                     return ResponseEntity.ok(emptyQueue);
                 });
+    }
+
+    private void saveBathroomAnalytics(String studentName, String teacherEmail) {
+        String key = studentName + "-" + teacherEmail;
+        LocalDateTime start = checkInTimes.remove(key);
+        if (start != null) {
+            Person person = personRepository.findByUid(studentName);
+            if (person == null) {
+                person = personRepository.findByName(studentName);
+            }
+            if (person != null) {
+                long duration = Duration.between(start, LocalDateTime.now()).getSeconds();
+                OCSAnalytics analytics = new OCSAnalytics();
+                analytics.setPerson(person);
+                analytics.setSessionStartTime(start);
+                analytics.setSessionEndTime(LocalDateTime.now());
+                analytics.setSessionDurationSeconds(duration);
+                analytics.setQuestName("Bathroom Pass");
+                analytics.setModuleName("Bathroom Time Tracking");
+                analyticsRepository.save(analytics);
+            }
+        }
     }
 }

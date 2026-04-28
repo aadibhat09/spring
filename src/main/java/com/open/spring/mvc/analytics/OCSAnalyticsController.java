@@ -193,6 +193,13 @@ public class OCSAnalyticsController {
             List<String> quests = analyticsRepository.getEngagedQuests(person);
             summary.put("engagedQuests", quests);
             
+            List<OCSAnalytics> bathroomSessions = analyticsRepository.findByPersonAndQuestName(person, "Bathroom Pass");
+            Long bathroomSeconds = bathroomSessions.stream()
+                    .mapToLong(a -> a.getSessionDurationSeconds() != null ? a.getSessionDurationSeconds() : 0)
+                    .sum();
+            summary.put("bathroomTimeSeconds", bathroomSeconds);
+            summary.put("bathroomTimeFormatted", formatSeconds(bathroomSeconds));
+            
             return ResponseEntity.ok(summary);
 
         } catch (Exception e) {
