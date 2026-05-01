@@ -34,12 +34,17 @@ public class CalendarIssueController {
     private CalendarIssueService calendarIssueService;
 
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> getIssues(
+        public ResponseEntity<List<Map<String, Object>>> getIssues(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String priority,
             @RequestParam(required = false) String dueDate,
             @RequestParam(required = false) String eventId,
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) String author,
+            @RequestParam(required = false) String tags,
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end,
+            @RequestParam(required = false) String groupName,
             @AuthenticationPrincipal UserDetails userDetails) {
 
         if (userDetails == null) {
@@ -47,18 +52,26 @@ public class CalendarIssueController {
         }
 
         LocalDate parsedDueDate = null;
+        LocalDate startDate = null;
+        LocalDate endDate = null;
         if (dueDate != null && !dueDate.isBlank()) {
             parsedDueDate = LocalDate.parse(dueDate);
+        }
+        try {
+            if (start != null && !start.isBlank()) startDate = LocalDate.parse(start);
+            if (end != null && !end.isBlank()) endDate = LocalDate.parse(end);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
         }
 
         String requesterUid = userDetails.getUsername();
         boolean privileged = hasPrivilegedRole(userDetails);
 
         List<Map<String, Object>> data = calendarIssueService
-                .getIssues(status, priority, parsedDueDate, eventId, q, requesterUid, privileged)
-                .stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+            .getIssues(status, priority, parsedDueDate, eventId, q, author, tags, startDate, endDate, groupName, requesterUid, privileged)
+            .stream()
+            .map(this::toResponse)
+            .collect(Collectors.toList());
         return ResponseEntity.ok(data);
     }
 
