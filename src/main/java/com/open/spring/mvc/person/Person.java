@@ -62,7 +62,7 @@ import lombok.NonNull;
 @AllArgsConstructor
 @NoArgsConstructor
 @Entity
-@JsonIgnoreProperties({ "submissions", "groups" })
+@JsonIgnoreProperties({ "submissions", "groups", "faceData" })
 public class Person extends Submitter implements Comparable<Person> {
 
     //////////////////////////////////////////////////////////////////////////////////
@@ -131,6 +131,7 @@ public class Person extends Submitter implements Comparable<Person> {
 
     /** Facial data for recognition (base64 or embedding) */
     @Column(columnDefinition = "text")
+    @JsonIgnore
     private String faceData;
 
     /**
